@@ -1,0 +1,41 @@
+{
+  "name": "pomint",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "tauri:signer": "tauri signer generate -w .\\keys\\pomint.key",
+    "tauri:signer:location": "tauri signer generate -w",
+    "release": "npm run release:installer && npm run release:portable",
+    "release:installer": "tsx scripts/release-installer.ts",
+    "release:portable": "tsx scripts/release-portable.ts",
+    "typecheck": "tsc --noEmit",
+    "check:rust": "cargo check --manifest-path src-tauri/Cargo.toml"
+  },
+  "dependencies": {
+    "@ant-design/icons": "^6.3.4",
+    "@fontsource/dseg7": "^4.5.4",
+    "@fontsource/orbitron": "^5.3.0",
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-opener": "^2",
+    "@tauri-apps/plugin-updater": "^2.14.1",
+    "antd": "^6.7.1",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "tsx": "^4.23.15",
+    "zustand": "^5.1.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^6.0.2",
+    "typescript": "~6.0.3",
+    "vite": "^8.0.16"
+  }
+}

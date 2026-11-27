@@ -1,0 +1,122 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**/*.md"
+      - "docs/**"
+      - "CHANGELOG*"
+      - "LICENSE*"
+      - "src/**"
+      - "public/**"
+      - "index.html"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig*.json"
+      - "vite.config.ts"
+      - "src-tauri/**"
+      - "scripts/**"
+      - ".github/workflows/ci.yml"
+      - ".github/workflows/release.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "**/*.md"
+      - "docs/**"
+      - "CHANGELOG*"
+      - "LICENSE*"
+      - "src/**"
+      - "public/**"
+      - "index.html"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig*.json"
+      - "vite.config.ts"
+      - "src-tauri/**"
+      - "scripts/**"
+      - ".github/workflows/ci.yml"
+      - ".github/workflows/release.yml"
+
+jobs:
+  changes:
+    name: Detect changes
+    runs-on: windows-latest
+    outputs:
+      docs: ${{ steps.filter.outputs.docs }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      rust: ${{ steps.filter.outputs.rust }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            docs:
+              - '**/*.md'
+              - 'docs/**'
+              - 'CHANGELOG*'
+              - 'LICENSE*'
+            frontend:
+              - 'src/**'
+              - 'public/**'
+              - 'index.html'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'tsconfig*.json'
+              - 'vite.config.ts'
+            rust:
+              - 'src-tauri/**'
+
+  docs:
+    name: Docs changes
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Confirm docs changes
+        run: echo "Documentation-related changes detected."
+
+  typecheck:
+    name: TypeScript check
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run TypeScript check and build
+        run: npm run build
+
+  rust-check:
+    name: Rust check
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Run cargo check
+        run: cargo check --manifest-path src-tauri/Cargo.toml

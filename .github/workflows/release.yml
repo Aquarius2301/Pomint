@@ -1,0 +1,134 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build installer, portable
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Check tag matches app versions
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $expected = $tag.TrimStart('v')
+
+          $tauri = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $node = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $rust = [regex]::Match(
+            (Get-Content src-tauri/Cargo.toml -Raw),
+            '(?m)^version\s*=\s*"([^"]+)"'
+          ).Groups[1].Value
+          $frontend = [regex]::Match(
+            (Get-Content src/constants/common.ts -Raw),
+            'export const VERSION\s*=\s*"([^"]+)"'
+          ).Groups[1].Value
+
+          $versions = @{
+            "tauri.conf.json" = $tauri
+            "package.json" = $node
+            "Cargo.toml" = $rust
+            "common.ts" = $frontend
+          }
+
+          foreach ($source in $versions.Keys) {
+            if ($versions[$source] -ne $expected) {
+              throw "Tag $tag does not match $source version $($versions[$source])"
+            }
+          }
+
+      - name: Read release notes from CHANGELOG.md
+        id: notes
+        shell: pwsh
+        run: |
+          $version = ($env:GITHUB_REF_NAME).TrimStart('v')
+          $changelog = Get-Content CHANGELOG.md -Raw
+          $pattern = '(?ms)^##\s*\[?' + [regex]::Escape($version) + '\]?[^\r\n]*\r?\n(.*?)(?=^##\s|\z)'
+          $match = [regex]::Match($changelog, $pattern)
+
+          if (-not $match.Success) {
+            throw "No CHANGELOG.md section found for version $version"
+          }
+
+          $section = $match.Groups[1].Value
+          $body = $section.Trim()
+          $hasContent = ($section -split '\r?\n' | Where-Object {
+            $_ -match '\S' -and $_ -notmatch '^###\s'
+          }).Count -gt 0
+          if (-not $hasContent) {
+            throw "CHANGELOG.md section for version $version has no release notes"
+          }
+
+          $delimiter = "RELEASE_NOTES_EOF"
+          "body<<$delimiter`n$body`n$delimiter" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      # Build NSIS installer and updater artifacts
+      - name: Build signed installer
+        id: release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          VITE_DISTRIBUTION: "installer"
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: Pomint v__VERSION__
+          releaseBody: ${{ steps.notes.outputs.body }}
+          releaseDraft: false
+          prerelease: false
+          args: --bundles nsis
+          updaterJsonPreferNsis: true
+          uploadUpdaterJson: true
+          uploadUpdaterSignatures: true
+          releaseAssetNamePattern: "[name]-[version]-installer[ext]"
+
+      - name: Remove installer bundles before portable build
+        shell: pwsh
+        run: |
+          if (Test-Path -LiteralPath "src-tauri/target/release/bundle") {
+            Remove-Item -LiteralPath "src-tauri/target/release/bundle" -Recurse -Force
+          }
+
+      # Build portable executable and upload to the same release
+      - name: Build and upload portable binary
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          VITE_DISTRIBUTION: "portable"
+        with:
+          releaseId: ${{ steps.release.outputs.releaseId }}
+          args: --no-bundle
+          uploadPlainBinary: true
+          uploadUpdaterJson: false
+          uploadUpdaterSignatures: false
+          releaseAssetNamePattern: "Pomint-[version]-portable[ext]"
